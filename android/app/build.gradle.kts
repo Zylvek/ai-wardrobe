@@ -60,6 +60,13 @@ android {
             } else {
                 signingConfigs.getByName("debug")
             }
+            // Сжатие кода (R8) + наши правила: не трогать классы
+            // ai.onnxruntime (иначе краш JNI «java_class == null»).
+            isMinifyEnabled = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
         }
     }
 }
