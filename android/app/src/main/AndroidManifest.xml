@@ -4,6 +4,8 @@
     <!-- Самообновление: разрешение ставить APK, скачанные из интернета
          (пользователь подтверждает один раз в системном окне). -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
+    <!-- Съёмка вещей: камера внутри приложения. -->
+    <uses-permission android:name="android.permission.CAMERA"/>
     <application
         android:label="AI Wardrobe"
         android:name="${applicationName}"

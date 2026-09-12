@@ -72,34 +72,31 @@ Outfit? _buildOnce(String weather) {
           ok.contains(i.weather))
       .toList();
 
-  final tops = suitable(_topTypes);
-  final bottoms = suitable(_bottomTypes);
-  final dresses = suitable(_dressTypes);
-  final shoes = suitable(_shoeTypes);
-  final outers = suitable(_outerTypes);
+  // Каждый слот наполняется независимо: если есть хотя бы одна вещь
+  // под погоду — образ соберётся, хоть из одной футболки.
+  final top = _pick(suitable(_topTypes));
+  final bottom = _pick(suitable(_bottomTypes));
+  final shoes = _pick(suitable(_shoeTypes));
 
-  final ClothingItem? top;
-  final ClothingItem? bottom;
-  if (tops.isNotEmpty && bottoms.isNotEmpty) {
-    top = _pick(tops);
-    bottom = _pick(bottoms);
-  } else if (dresses.isNotEmpty) {
-    // Платье заменяет верх + низ.
-    top = _pick(dresses);
-    bottom = null;
-  } else {
-    top = null;
-    bottom = null;
+  // Платье заменяет верх + низ, только если их нет.
+  ClothingItem? dress;
+  if (top == null && bottom == null) {
+    dress = _pick(suitable(_dressTypes));
   }
-
-  if (top == null && bottom == null) return null;
 
   ClothingItem? outer;
-  if ((weather == 'Холод' || weather == 'Дождь') && outers.isNotEmpty) {
-    outer = _pick(outers);
+  if (weather == 'Холод' || weather == 'Дождь') {
+    outer = _pick(suitable(_outerTypes));
   }
 
-  return Outfit(top: top, bottom: bottom, shoes: _pick(shoes), outer: outer);
+  final outfit = Outfit(
+    top: top ?? dress,
+    bottom: dress == null ? bottom : null,
+    shoes: shoes,
+    outer: outer,
+  );
+  if (outfit.items.isEmpty) return null;
+  return outfit;
 }
 
 // ───────── История оценок (для «понимания вкуса») ─────────

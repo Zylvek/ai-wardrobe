@@ -70,22 +70,20 @@ class _MannequinOutfitState extends State<MannequinOutfit> {
             );
 
         Widget piece(Rect rect, String path) {
-          // Карточка-вещь: при повороте сжимается по ширине (эффект
-          // «предмет повёрнут ребром»), с тыла зеркалится и чуть гаснет.
-          final facing = cos.abs().clamp(0.22, 1.0);
-          final t = ((facing - 0.22) / 0.78).clamp(0.0, 1.0);
+          // Карточка-вещь крутится в настоящем 3D: перспектива + поворот
+          // вокруг вертикальной оси. На боку карточка сжимается в линию,
+          // с тыла видно её зеркальную сторону. Чуть гаснет у ребра.
+          final t = cos.abs().clamp(0.0, 1.0);
           return Positioned.fromRect(
             rect: rect,
             child: IgnorePointer(
               child: Opacity(
-                opacity: 0.30 + 0.70 * t,
+                opacity: 0.35 + 0.65 * t,
                 child: Transform(
                   alignment: Alignment.center,
-                  transform: Matrix4.diagonal3Values(
-                    cos < 0 ? -facing : facing,
-                    1,
-                    1,
-                  ),
+                  transform: Matrix4.identity()
+                    ..setEntry(3, 2, 0.0012) // перспектива
+                    ..rotateY(-_angle),
                   child: Image.file(
                     File(path),
                     fit: BoxFit.contain,

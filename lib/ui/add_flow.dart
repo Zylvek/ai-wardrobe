@@ -5,6 +5,7 @@ import 'package:image_picker/image_picker.dart';
 
 import '../data/models.dart';
 import '../data/wardrobe_store.dart';
+import 'capture_screen.dart';
 import 'theme/decor.dart';
 
 /// «Умная камера»: на телефоне предлагает «Снять камерой» или
@@ -98,13 +99,27 @@ class _AngleCaptureSheetState extends State<_AngleCaptureSheet> {
     if (_busy) return;
     setState(() => _busy = true);
     try {
-      final picked = await ImagePicker().pickImage(
-        source: source,
-        imageQuality: 90,
-        maxWidth: 1600,
-      );
-      if (picked != null) {
-        await WardrobeStore.addAnglePhoto(widget.item, picked.path);
+      // Камера приложения с подсказкой текущего ракурса; галерея —
+      // как раньше, системный выбор.
+      String? path;
+      if (source == ImageSource.camera && Platform.isAndroid) {
+        // Подсказка: что снимаем прямо сейчас.
+        final hint = widget.steps[_taken].$2;
+        path = await Navigator.of(context).push<String>(
+          MaterialPageRoute(
+            builder: (_) => CaptureScreen(hint: hint),
+          ),
+        );
+      } else {
+        final picked = await ImagePicker().pickImage(
+          source: source,
+          imageQuality: 90,
+          maxWidth: 1600,
+        );
+        path = picked?.path;
+      }
+      if (path != null) {
+        await WardrobeStore.addAnglePhoto(widget.item, path);
         if (!mounted) return;
         if (_taken + 1 >= widget.steps.length) {
           // Сняли последний ракурс — закрываем шторку.
@@ -244,6 +259,17 @@ Future<String?> _pickMobile(BuildContext context) async {
     ),
   );
   if (source == null) return null;
+  // Камера приложения с рамкой-подсказкой; галерея — системный выбор.
+  if (source == ImageSource.camera && Platform.isAndroid) {
+    if (!context.mounted) return null;
+    return Navigator.of(context).push<String>(
+      MaterialPageRoute(
+        builder: (_) => const CaptureScreen(
+          hint: 'Клади вещь на однотонный фон',
+        ),
+      ),
+    );
+  }
   final picked = await ImagePicker().pickImage(
     source: source,
     imageQuality: 90,

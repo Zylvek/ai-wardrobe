@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../data/constants.dart';
 import '../data/models.dart';
 import '../data/outfit_builder.dart';
+import '../data/weather_service.dart';
 import 'add_flow.dart';
 import 'mannequin_view.dart';
 import 'theme/decor.dart';
@@ -28,6 +29,29 @@ class _TodayPageState extends State<TodayPage> {
   String _weather = 'Тепло';
   Outfit? _outfit;
   bool _triedToBuild = false;
+
+  /// Настоящая температура за окном (null — не узнали).
+  double? _realTemp;
+
+  /// Погоду выбрал сам — настоящую больше не подставляем.
+  bool _manualWeather = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadRealWeather();
+  }
+
+  /// Узнаёт настоящую погоду и подставляет её, если пользователь
+  /// ещё не выбрал свою.
+  Future<void> _loadRealWeather() async {
+    final info = await fetchRealWeather();
+    if (info == null || !mounted || _manualWeather) return;
+    setState(() {
+      _weather = info.category;
+      _realTemp = info.temp;
+    });
+  }
 
   void _generate() {
     setState(() {
@@ -133,7 +157,10 @@ class _TodayPageState extends State<TodayPage> {
                             ),
                           ),
                           selected: _weather == w,
-                          onSelected: (_) => setState(() => _weather = w),
+                          onSelected: (_) => setState(() {
+                            _weather = w;
+                            _manualWeather = true;
+                          }),
                         ),
                       ),
                   ],
@@ -275,7 +302,10 @@ class _TodayPageState extends State<TodayPage> {
               ],
             ),
           ),
-          Text('—°C', style: TextStyle(color: Colors.white.withValues(alpha: 0.6))),
+          Text(
+            _realTemp == null ? '—°C' : '${_realTemp!.round()}°C',
+            style: TextStyle(color: Colors.white.withValues(alpha: 0.6)),
+          ),
         ],
       ),
     );
