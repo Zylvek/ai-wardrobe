@@ -1,0 +1,60 @@
+name: Сборка и публикация APK
+
+# Сборка запускается, когда в main меняется версия в pubspec.yaml
+# (это и есть «выпуск новой версии»), либо вручную из вкладки Actions.
+on:
+  push:
+    branches: [main]
+    paths: ['pubspec.yaml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Распаковываем ключ подписи
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          echo "$KEYSTORE_BASE64" | base64 --decode > android/app/upload-keystore.jks
+          cat > android/key.properties <<EOF
+          storePassword=${{ secrets.ANDROID_STORE_PASSWORD }}
+          keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}
+          keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}
+          storeFile=upload-keystore.jks
+          EOF
+
+      - name: Устанавливаем зависимости
+        run: flutter pub get
+
+      - name: Собираем APK
+        run: flutter build apk --release
+
+      - name: Читаем версию из pubspec.yaml
+        id: ver
+        run: |
+          VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: *//')
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Публикуем релиз
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="v${{ steps.ver.outputs.version }}"
+          cp build/app/outputs/flutter-apk/app-release.apk wardrobe_ai.apk
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" wardrobe_ai.apk --clobber
+          else
+            gh release create "$TAG" wardrobe_ai.apk \
+              --title "AI Wardrobe $TAG" \
+              --notes "Версия $TAG"
+          fi

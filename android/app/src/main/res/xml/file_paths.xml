@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Отдаём установщику Android доступ только к скачанному APK
+     во временном каталоге приложения. -->
+<paths>
+    <cache-path name="downloads" path="." />
+    <external-cache-path name="external_downloads" path="." />
+</paths>
