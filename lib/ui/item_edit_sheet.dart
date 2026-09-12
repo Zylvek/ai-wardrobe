@@ -23,6 +23,8 @@ class _ItemEditSheetState extends State<ItemEditSheet> {
   late String? _type = widget.item.type;
   late String? _color = widget.item.color;
   late String? _weather = widget.item.weather;
+  late String? _note = widget.item.note;
+  late bool _inLaundry = widget.item.inLaundry;
   late String _imagePath = widget.item.imagePath;
   final PageController _angleController = PageController();
   int _angleIndex = 0;
@@ -230,6 +232,36 @@ class _ItemEditSheetState extends State<ItemEditSheet> {
               (v) => setState(() => _weather = v),
             ),
             const SizedBox(height: 12),
+            // Заметка: бренд, «колется», «тёплая» — что угодно.
+            TextField(
+              controller: TextEditingController(text: _note ?? ''),
+              onChanged: (v) => _note = v.isEmpty ? null : v,
+              maxLines: 1,
+              decoration: const InputDecoration(
+                labelText: 'Заметка',
+                hintText: 'Например: тёплая, но колется',
+              ),
+            ),
+            const SizedBox(height: 12),
+            // «В стирке»: вещь не попадает в образы до завтра.
+            Row(
+              children: [
+                const Icon(Icons.local_laundry_service, size: 20),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    _inLaundry
+                        ? 'В стирке — вернётся завтра'
+                        : 'Отправить в стирку',
+                  ),
+                ),
+                Switch(
+                  value: _inLaundry,
+                  onChanged: (v) => setState(() => _inLaundry = v),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
             // Версия приложения, в которой вещь добавлена, и версия
             // фильтра, которым вырезан фон. Нужно, чтобы после улучшения
             // фильтра можно было перекроить старые вещи заново.
@@ -251,7 +283,13 @@ class _ItemEditSheetState extends State<ItemEditSheet> {
                       widget.item
                         ..type = _type
                         ..color = _color
-                        ..weather = _weather;
+                        ..weather = _weather
+                        ..note = _note;
+                      if (_inLaundry) {
+                        widget.item.sendToLaundry();
+                      } else {
+                        widget.item.laundryUntil = null;
+                      }
                       Navigator.pop(context, 'save');
                     },
                     icon: const Icon(Icons.check),

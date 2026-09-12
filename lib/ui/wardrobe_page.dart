@@ -6,10 +6,23 @@ import '../data/constants.dart';
 import '../data/models.dart';
 import '../data/options_store.dart';
 import '../data/wardrobe_store.dart';
+import '../data/wear_store.dart';
 import 'add_flow.dart';
 import 'filter_chips.dart';
 import 'item_edit_sheet.dart';
 import 'theme/decor.dart';
+
+/// Режим сортировки карточек в гардеробе.
+enum SortMode {
+  newest('Сначала новые'),
+  oldest('Сначала старые'),
+  byType('По типу'),
+  byColor('По цвету'),
+  byWear('По частоте носки');
+
+  const SortMode(this.label);
+  final String label;
+}
 
 /// Страница 2: поиск, фильтры, карточки вещей.
 class WardrobePage extends StatefulWidget {
@@ -25,32 +38,83 @@ class _WardrobePageState extends State<WardrobePage> {
   String? _filterColor;   // выбранный цвет (null = «Любой»)
   String? _filterWeather; // выбранная погода (null = «Любая»)
 
-  bool get _hasActiveFilters =>
-      _filterType != null || _filterColor != null || _filterWeather != null;
+  final _searchController = TextEditingController();
+  String _query = '';
+  SortMode _sort = SortMode.newest;
 
-  List<ClothingItem> get _filteredItems {
-    return WardrobeStore.items.where((item) {
-      if (_filterType != null && item.type != _filterType) return false;
-      if (_filterColor != null && item.color != _filterColor) return false;
-      if (_filterWeather != null && item.weather != _filterWeather) return false;
-      return true;
-    }).toList();
-  }
+  // Мультивыбор: id выбранных вещей.
+  final Set<String> _selected = {};
+  bool get _selecting => _selected.isNotEmpty;
 
   @override
   void initState() {
     super.initState();
     wardrobeVersion.addListener(_refresh);
+    wearVersion.addListener(_refresh);
   }
 
   @override
   void dispose() {
     wardrobeVersion.removeListener(_refresh);
+    wearVersion.removeListener(_refresh);
+    _searchController.dispose();
     super.dispose();
   }
 
   void _refresh() {
     if (mounted) setState(() {});
+  }
+
+  /// Добавляет/убирает вещь из выбранных.
+  void _toggleSelect(String id) {
+    setState(() {
+      if (!_selected.remove(id)) _selected.add(id);
+    });
+  }
+
+  bool get _hasActiveFilters =>
+      _filterType != null || _filterColor != null || _filterWeather != null;
+
+  List<ClothingItem> get _filteredItems {
+    final q = _query.trim().toLowerCase();
+    final items = WardrobeStore.items.where((item) {
+      if (_filterType != null && item.type != _filterType) return false;
+      if (_filterColor != null && item.color != _filterColor) return false;
+      if (_filterWeather != null && item.weather != _filterWeather) {
+        return false;
+      }
+      // Поиск по названию, цвету, погоде и заметке.
+      if (q.isNotEmpty) {
+        final haystack = [
+          item.type ?? '',
+          item.color ?? '',
+          item.weather ?? '',
+          item.note ?? '',
+        ].join(' ').toLowerCase();
+        if (!haystack.contains(q)) return false;
+      }
+      return true;
+    }).toList();
+
+    switch (_sort) {
+      case SortMode.newest:
+        // Список хранится «старые первыми» — новые в конце.
+        return items.reversed.toList();
+      case SortMode.oldest:
+        return items;
+      case SortMode.byType:
+        items.sort((a, b) =>
+            (a.type ?? 'Я').compareTo(b.type ?? 'Я'));
+        return items;
+      case SortMode.byColor:
+        items.sort((a, b) =>
+            (a.color ?? 'Я').compareTo(b.color ?? 'Я'));
+        return items;
+      case SortMode.byWear:
+        items.sort((a, b) =>
+            WearStore.wearCount(b.id).compareTo(WearStore.wearCount(a.id)));
+        return items;
+    }
   }
 
   @override
@@ -64,58 +128,42 @@ class _WardrobePageState extends State<WardrobePage> {
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    decoration: const InputDecoration(
-                      prefixIcon: Icon(Icons.search),
-                      hintText: 'Поиск вещей...',
-                      isDense: true,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                FilledButton.tonalIcon(
-                  onPressed: () => runAddFlow(context),
-                  icon: const Icon(Icons.add_a_photo),
-                  label: const Text('Добавить'),
-                ),
-              ],
-            ),
+            child: _selecting ? _selectionBar() : _searchBar(),
           ),
           const SizedBox(height: 8),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Row(
-              children: [
-                _filterToggle('Погода', Icons.wb_cloudy),
-                const SizedBox(width: 8),
-                _filterToggle('Цвет', Icons.palette),
-                const SizedBox(width: 8),
-                _filterToggle('Тип', Icons.checkroom),
-                if (_hasActiveFilters)
-                  TextButton.icon(
-                    onPressed: () => setState(() {
-                      _filterType = null;
-                      _filterColor = null;
-                      _filterWeather = null;
-                    }),
-                    icon: const Icon(Icons.clear_all, size: 16),
-                    label: const Text('Сбросить'),
-                  ),
-              ],
+          if (!_selecting)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                children: [
+                  _filterToggle('Погода', Icons.wb_cloudy),
+                  const SizedBox(width: 8),
+                  _filterToggle('Цвет', Icons.palette),
+                  const SizedBox(width: 8),
+                  _filterToggle('Тип', Icons.checkroom),
+                  if (_hasActiveFilters)
+                    TextButton.icon(
+                      onPressed: () => setState(() {
+                        _filterType = null;
+                        _filterColor = null;
+                        _filterWeather = null;
+                      }),
+                      icon: const Icon(Icons.clear_all, size: 16),
+                      label: const Text('Сбросить'),
+                    ),
+                ],
+              ),
             ),
-          ),
           AnimatedSize(
             duration: const Duration(milliseconds: 200),
-            child: _openFilter == null
-                ? const SizedBox(height: 0, width: double.infinity)
-                : Padding(
+            child: !_selecting && _openFilter != null
+                ? Padding(
                     padding: const EdgeInsets.only(top: 4),
                     child: _chipsFor(_openFilter!),
-                  ),
+                  )
+                : const SizedBox(height: 0, width: double.infinity),
           ),
+          if (_selecting) _selectionActions(),
           Expanded(
             child: WardrobeStore.items.isEmpty
                 ? _emptyState(
@@ -132,11 +180,12 @@ class _WardrobePageState extends State<WardrobePage> {
                         iconColors: [scheme.surfaceContainerHigh, scheme.surfaceContainerHighest],
                         iconColor: muted,
                         title: 'Ничего не найдено',
-                        hint: 'Попробуй изменить фильтры',
+                        hint: 'Попробуй изменить фильтры или поиск',
                         hintColor: muted,
                       )
                     : GridView.builder(
-                        padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
+                        padding: EdgeInsets.fromLTRB(
+                            16, 16, 16, _selecting ? 160 : 100),
                         gridDelegate:
                             const SliverGridDelegateWithMaxCrossAxisExtent(
                           maxCrossAxisExtent: 180,
@@ -153,8 +202,202 @@ class _WardrobePageState extends State<WardrobePage> {
           ),
         ],
       ),
-    ),
+      ),
     );
+  }
+
+  /// Обычная строка: поиск + сортировка + «Добавить».
+  Widget _searchBar() {
+    return Row(
+      children: [
+        Expanded(
+          child: TextField(
+            controller: _searchController,
+            onChanged: (v) => setState(() => _query = v),
+            decoration: InputDecoration(
+              prefixIcon: const Icon(Icons.search),
+              hintText: 'Поиск вещей...',
+              isDense: true,
+              suffixIcon: PopupMenuButton<SortMode>(
+                icon: Icon(
+                  Icons.sort,
+                  color: _sort == SortMode.newest
+                      ? Theme.of(context).colorScheme.onSurfaceVariant
+                      : Theme.of(context).colorScheme.primary,
+                ),
+                tooltip: 'Сортировка',
+                onSelected: (m) => setState(() => _sort = m),
+                itemBuilder: (_) => [
+                  for (final m in SortMode.values)
+                    PopupMenuItem(
+                      value: m,
+                      child: Row(
+                        children: [
+                          if (m == _sort)
+                            const Icon(Icons.check, size: 18)
+                          else
+                            const SizedBox(width: 18),
+                          const SizedBox(width: 8),
+                          Text(m.label),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        FilledButton.tonalIcon(
+          onPressed: () => runAddFlow(context),
+          icon: const Icon(Icons.add_a_photo),
+          label: const Text('Добавить'),
+        ),
+      ],
+    );
+  }
+
+  /// Строка режима выбора: счётчик + «Выбрать всё» + «Отмена».
+  Widget _selectionBar() {
+    return Row(
+      children: [
+        Icon(Icons.check_circle,
+            color: Theme.of(context).colorScheme.primary),
+        const SizedBox(width: 8),
+        Text(
+          'Выбрано: ${_selected.length}',
+          style: const TextStyle(fontWeight: FontWeight.w700),
+        ),
+        const Spacer(),
+        TextButton(
+          onPressed: () => setState(() {
+            for (final item in WardrobeStore.items) {
+              _selected.add(item.id);
+            }
+          }),
+          child: const Text('Выбрать всё'),
+        ),
+        TextButton(
+          onPressed: () => setState(() => _selected.clear()),
+          child: const Text('Отмена'),
+        ),
+      ],
+    );
+  }
+
+  /// Нижняя панель действий над выбранными вещами.
+  Widget _selectionActions() {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 6, 16, 4),
+      child: Row(
+        children: [
+          Expanded(
+            child: FilledButton.tonalIcon(
+              onPressed: _deleteSelected,
+              style: FilledButton.styleFrom(
+                foregroundColor: scheme.error,
+              ),
+              icon: const Icon(Icons.delete_outline, size: 18),
+              label: const Text('Удалить'),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: FilledButton.tonalIcon(
+              onPressed: _laundrySelected,
+              icon: const Icon(Icons.local_laundry_service, size: 18),
+              label: const Text('В стирку'),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: PopupMenuButton<String>(
+              onSelected: (w) => _weatherSelected(w),
+              itemBuilder: (_) => [
+                for (final w in kWeathers)
+                  PopupMenuItem(value: w, child: Text(w)),
+              ],
+              child: FilledButton.tonalIcon(
+                onPressed: null,
+                icon: const Icon(Icons.wb_cloudy, size: 18),
+                label: const Text('Погода'),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _deleteSelected() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Удалить выбранные вещи?'),
+        content: Text(
+          'Будут удалены ${_selected.length} '
+          '${_pluralThing(_selected.length)} вместе с фото.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Отмена'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Удалить'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    for (final item in WardrobeStore.items
+        .where((i) => _selected.contains(i.id))
+        .toList()) {
+      WardrobeStore.items.remove(item);
+      try {
+        await File(item.imagePath).delete();
+      } catch (_) {}
+    }
+    _selected.clear();
+    await WardrobeStore.save();
+    wardrobeVersion.value++;
+  }
+
+  static String _pluralThing(int n) {
+    if (n % 10 == 1 && n % 100 != 11) return 'вещь';
+    if ({2, 3, 4}.contains(n % 10) &&
+        !{12, 13, 14}.contains(n % 100)) {
+      return 'вещи';
+    }
+    return 'вещей';
+  }
+
+  Future<void> _laundrySelected() async {
+    for (final item in WardrobeStore.items) {
+      if (_selected.contains(item.id)) item.sendToLaundry();
+    }
+    _selected.clear();
+    await WardrobeStore.save();
+    wardrobeVersion.value++;
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Вещи отправлены в стирку — до завтра 🧺'),
+        ),
+      );
+    }
+  }
+
+  Future<void> _weatherSelected(String weather) async {
+    for (final item in WardrobeStore.items) {
+      if (_selected.contains(item.id)) item.weather = weather;
+    }
+    _selected.clear();
+    await WardrobeStore.save();
+    wardrobeVersion.value++;
   }
 
   /// Большое пустое состояние с иконкой в градиентном круге.
@@ -205,45 +448,101 @@ class _WardrobePageState extends State<WardrobePage> {
   Widget _itemCard(ClothingItem item) {
     final scheme = Theme.of(context).colorScheme;
     final dot = _colorDotFor(item.color, scheme);
+    final isSelected = _selected.contains(item.id);
     return Card(
       margin: EdgeInsets.zero,
       child: InkWell(
-        onTap: () => _editItem(item),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+        onTap: () =>
+            _selecting ? _toggleSelect(item.id) : _editItem(item),
+        onLongPress: () => _toggleSelect(item.id),
+        child: Stack(
           children: [
-            Expanded(
-              child: Image.file(
-                File(item.imagePath),
-                width: double.infinity,
-                // contain: вещь видна целиком, а не «только середина».
-                fit: BoxFit.contain,
-                errorBuilder: (_, _, _) => Center(
-                  child: Icon(Icons.broken_image, size: 40, color: scheme.onSurfaceVariant),
-                ),
-              ),
-            ),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-              child: Row(
-                children: [
-                  ?dot,
-                  Expanded(
-                    child: Text(
-                      item.type ?? 'Укажи параметры',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: item.isComplete
-                            ? scheme.onSurfaceVariant
-                            : scheme.primary,
-                      ),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(
+                  child: Image.file(
+                    File(item.imagePath),
+                    width: double.infinity,
+                    // contain: вещь видна целиком, а не «только середина».
+                    fit: BoxFit.contain,
+                    errorBuilder: (_, _, _) => Center(
+                      child: Icon(Icons.broken_image, size: 40, color: scheme.onSurfaceVariant),
                     ),
                   ),
-                ],
-              ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                  child: Row(
+                    children: [
+                      ?dot,
+                      Expanded(
+                        child: Text(
+                          item.type ?? 'Укажи параметры',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: item.isComplete
+                                ? scheme.onSurfaceVariant
+                                : scheme.primary,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
+            // Вещь в стирке — приглушаем и показываем бейдж.
+            if (item.inLaundry) ...[
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: Container(
+                    color: scheme.surface.withValues(alpha: 0.55),
+                  ),
+                ),
+              ),
+              Positioned(
+                top: 6,
+                right: 6,
+                child: Container(
+                  padding: const EdgeInsets.all(5),
+                  decoration: BoxDecoration(
+                    color: scheme.surfaceContainerHighest,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    Icons.local_laundry_service,
+                    size: 16,
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+            ],
+            // Выбранная вещь — подсветка и галочка.
+            if (isSelected) ...[
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: Container(
+                    color: scheme.primary.withValues(alpha: 0.25),
+                  ),
+                ),
+              ),
+              Positioned(
+                top: 6,
+                right: 6,
+                child: Container(
+                  padding: const EdgeInsets.all(2),
+                  decoration: BoxDecoration(
+                    color: scheme.primary,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(Icons.check,
+                      size: 16, color: scheme.onPrimary),
+                ),
+              ),
+            ],
           ],
         ),
       ),

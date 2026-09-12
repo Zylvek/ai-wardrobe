@@ -1,8 +1,11 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 import '../data/constants.dart';
 import '../data/models.dart';
 import '../data/outfit_builder.dart';
+import '../data/wear_store.dart';
 import '../data/weather_service.dart';
 import 'add_flow.dart';
 import 'mannequin_view.dart';
@@ -40,6 +43,17 @@ class _TodayPageState extends State<TodayPage> {
   void initState() {
     super.initState();
     _loadRealWeather();
+    wearVersion.addListener(_refresh);
+  }
+
+  @override
+  void dispose() {
+    wearVersion.removeListener(_refresh);
+    super.dispose();
+  }
+
+  void _refresh() {
+    if (mounted) setState(() {});
   }
 
   /// Узнаёт настоящую погоду и подставляет её, если пользователь
@@ -73,6 +87,99 @@ class _TodayPageState extends State<TodayPage> {
       ),
     );
     _generate();
+  }
+
+  /// Записывает «надел сегодня» за текущий образ.
+  Future<void> _wearToday() async {
+    final outfit = _outfit;
+    if (outfit == null) return;
+    await WearStore.addWear(outfit, _weather);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Записал — надел сегодня ✅')),
+    );
+  }
+
+  /// Добавляет/убирает образ в избранное.
+  Future<void> _toggleFavorite() async {
+    final outfit = _outfit;
+    if (outfit == null) return;
+    final added = await WearStore.toggleFavorite(outfit);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+            added ? 'Образ в избранном ⭐' : 'Убрал из избранного'),
+      ),
+    );
+  }
+
+  /// Показывает, что было надето в выбранный день.
+  Future<void> _showDay(DateTime day) async {
+    final t = DateTime.now();
+    final date =
+        '${t.year}-${t.month.toString().padLeft(2, '0')}-'
+        '${day.day.toString().padLeft(2, '0')}';
+    final event = WearStore.eventFor(date);
+    final outfit = event == null ? null : outfitFromIds(event.itemIds);
+    const dayNames = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+    const monthNames = [
+      'января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
+      'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря',
+    ];
+    if (!mounted) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (_) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '${dayNames[day.weekday - 1]}, '
+                '${day.day} ${monthNames[day.month - 1]}',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 12),
+              if (outfit == null)
+                const Text('В этот день ничего не надевал')
+              else
+                SizedBox(
+                  height: 120,
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      for (final item in outfit.items)
+                        Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(10),
+                            child: Container(
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .surfaceContainerHighest,
+                              child: Image.file(
+                                File(item.imagePath),
+                                width: 100,
+                                height: 120,
+                                fit: BoxFit.contain,
+                                errorBuilder: (_, _, _) =>
+                                    const SizedBox(width: 100, height: 120),
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   @override
@@ -133,6 +240,8 @@ class _TodayPageState extends State<TodayPage> {
                   ),
                 ],
               ),
+              const SizedBox(height: 12),
+              _weekStrip(scheme),
               const SizedBox(height: 16),
               _weatherHeroCard(scheme),
               const SizedBox(height: 14),
@@ -166,6 +275,7 @@ class _TodayPageState extends State<TodayPage> {
                   ],
                 ),
               ),
+              _favoritesStrip(scheme),
               Expanded(
                 child: AnimatedSwitcher(
                   duration: const Duration(milliseconds: 380),
@@ -209,7 +319,7 @@ class _TodayPageState extends State<TodayPage> {
                         minimumSize: const Size(58, 48),
                       ),
                     ),
-                    const SizedBox(width: 24),
+                    const SizedBox(width: 20),
                     IconButton.filledTonal(
                       onPressed: () => _rate(-1),
                       icon: Icon(Icons.thumb_down_outlined,
@@ -217,6 +327,36 @@ class _TodayPageState extends State<TodayPage> {
                       style: IconButton.styleFrom(
                         backgroundColor: scheme.errorContainer,
                         minimumSize: const Size(58, 48),
+                      ),
+                    ),
+                    const SizedBox(width: 20),
+                    // В избранное / уже в избранном.
+                    IconButton.filledTonal(
+                      onPressed: _toggleFavorite,
+                      icon: Icon(
+                        _outfit != null &&
+                                WearStore.hasFavorite(_outfit!.items
+                                    .map((e) => e.id)
+                                    .toList())
+                            ? Icons.star
+                            : Icons.star_border,
+                        color: Colors.amber.shade700,
+                      ),
+                      style: IconButton.styleFrom(
+                        backgroundColor: scheme.primaryContainer,
+                        minimumSize: const Size(48, 48),
+                      ),
+                    ),
+                    const SizedBox(width: 20),
+                    // «Надел сегодня» — запись в историю носки.
+                    IconButton.filledTonal(
+                      onPressed: _wearToday,
+                      icon: Icon(Icons.check_rounded,
+                          color: scheme.onPrimaryContainer),
+                      tooltip: 'Надел сегодня',
+                      style: IconButton.styleFrom(
+                        backgroundColor: scheme.primaryContainer,
+                        minimumSize: const Size(48, 48),
                       ),
                     ),
                   ],
@@ -387,6 +527,115 @@ class _TodayPageState extends State<TodayPage> {
             style: TextStyle(color: muted, fontSize: 15, height: 1.4),
           ),
         ],
+      ),
+    );
+  }
+
+  // ───────── История носки: последние 7 дней ─────────
+
+  Widget _weekStrip(ColorScheme scheme) {
+    final now = DateTime.now();
+    final days = List.generate(
+        7, (i) => DateTime(now.year, now.month, now.day)
+            .subtract(Duration(days: 6 - i)));
+    // Буквы дней недели: Пн Вт Ср Чт Пт Сб Вс.
+    const letters = ['П', 'В', 'С', 'Ч', 'П', 'С', 'В'];
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        for (final d in days)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            child: GestureDetector(
+              onTap: () => _showDay(d),
+              child: Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: WearStore.eventFor(
+                              '${d.year}-${d.month.toString().padLeft(2, '0')}-'
+                              '${d.day.toString().padLeft(2, '0')}') !=
+                          null
+                      ? scheme.primary
+                      : scheme.surfaceContainerHigh,
+                  border: (d.year == now.year &&
+                          d.month == now.month &&
+                          d.day == now.day)
+                      ? Border.all(color: scheme.primary, width: 2)
+                      : null,
+                ),
+                child: Center(
+                  child: Text(
+                    letters[d.weekday - 1],
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: WearStore.eventFor(
+                                  '${d.year}-${d.month.toString().padLeft(2, '0')}-'
+                                  '${d.day.toString().padLeft(2, '0')}') !=
+                              null
+                          ? scheme.onPrimary
+                          : scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  // ───────── Избранные образы ─────────
+
+  Widget _favoritesStrip(ColorScheme scheme) {
+    if (WearStore.favorites.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: SizedBox(
+        height: 74,
+        child: ListView(
+          scrollDirection: Axis.horizontal,
+          children: [
+            for (final f in WearStore.favorites)
+              _favoriteCard(f, scheme),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _favoriteCard(FavoriteOutfit f, ColorScheme scheme) {
+    final outfit = outfitFromIds(f.itemIds);
+    final items = outfit?.items ?? const <ClothingItem>[];
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: GestureDetector(
+        onTap: () {
+          if (outfit != null) setState(() => _outfit = outfit);
+        },
+        onLongPress: () => WearStore.removeFavorite(f),
+        child: Card(
+          margin: EdgeInsets.zero,
+          child: Padding(
+            padding: const EdgeInsets.all(4),
+            child: Row(
+              children: [
+                for (final item in items.take(3))
+                  SizedBox(
+                    width: 56,
+                    height: 64,
+                    child: Image.file(
+                      File(item.imagePath),
+                      fit: BoxFit.contain,
+                      errorBuilder: (_, _, _) => const SizedBox.expand(),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
