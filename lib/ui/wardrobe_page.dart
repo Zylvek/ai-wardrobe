@@ -216,7 +216,8 @@ class _WardrobePageState extends State<WardrobePage> {
               child: Image.file(
                 File(item.imagePath),
                 width: double.infinity,
-                fit: BoxFit.cover,
+                // contain: вещь видна целиком, а не «только середина».
+                fit: BoxFit.contain,
                 errorBuilder: (_, _, _) => Center(
                   child: Icon(Icons.broken_image, size: 40, color: scheme.onSurfaceVariant),
                 ),

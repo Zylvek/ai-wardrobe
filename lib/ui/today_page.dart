@@ -1,11 +1,10 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 
 import '../data/constants.dart';
 import '../data/models.dart';
 import '../data/outfit_builder.dart';
 import 'add_flow.dart';
+import 'mannequin_view.dart';
 import 'theme/decor.dart';
 
 /// Страница 1: образ дня, погода, кнопки.
@@ -363,65 +362,13 @@ class _TodayPageState extends State<TodayPage> {
   }
 
   Widget _buildOutfitView(Outfit outfit) {
-    final slots = <(String, ClothingItem)>[
-      if (outfit.outer != null) ('Верхняя', outfit.outer!),
-      if (outfit.top != null) ('Верх', outfit.top!),
-      if (outfit.bottom != null) ('Низ', outfit.bottom!),
-      if (outfit.shoes != null) ('Обувь', outfit.shoes!),
-    ];
+    // Манекен: вещи надеваются на фигуру. Пилюли-подписи не нужны —
+    // и так видно, где что надето.
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Row(
-        children: [
-          for (final slot in slots) _slotCard(slot.$2, slot.$1),
-        ],
-      ),
-    );
-  }
-
-  Widget _slotCard(ClothingItem item, String label) {
-    final scheme = Theme.of(context).colorScheme;
-    return Expanded(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 4),
-        child: Card(
-          margin: EdgeInsets.zero,
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              Image.file(
-                File(item.imagePath),
-                fit: BoxFit.cover,
-                errorBuilder: (_, _, _) => const Center(
-                  child: Icon(Icons.broken_image),
-                ),
-              ),
-              // Подпись слота — «пилюля» поверх фото.
-              Positioned(
-                left: 6,
-                right: 6,
-                bottom: 6,
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: scheme.surface.withValues(alpha: 0.88),
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                  child: Text(
-                    label,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      color: scheme.onSurface,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
+      child: SizedBox(
+        height: 430,
+        child: MannequinOutfit(outfit: outfit),
       ),
     );
   }

@@ -24,9 +24,17 @@ class _ItemEditSheetState extends State<ItemEditSheet> {
   late String? _color = widget.item.color;
   late String? _weather = widget.item.weather;
   late String _imagePath = widget.item.imagePath;
+  final PageController _angleController = PageController();
+  int _angleIndex = 0;
 
   double _sensitivity = 0.45;
   bool _cleaning = false;
+
+  @override
+  void dispose() {
+    _angleController.dispose();
+    super.dispose();
+  }
 
   /// Повторная очистка фона по оригиналу фото.
   Future<void> _reclean() async {
@@ -74,14 +82,58 @@ class _ItemEditSheetState extends State<ItemEditSheet> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            // Ракурсы вещи: спереди, слева, сзади, справа — листаются
+            // пальцем, как «вращение». Точки внизу показывают, какой кадр.
             ClipRRect(
               borderRadius: BorderRadius.circular(12),
-              child: Image.file(
-                File(_imagePath),
-                height: 200,
-                width: double.infinity,
-                fit: BoxFit.cover,
-                errorBuilder: (_, _, _) => const SizedBox(height: 200),
+              child: SizedBox(
+                height: 240,
+                child: Stack(
+                  children: [
+                    PageView(
+                      controller: _angleController,
+                      onPageChanged: (i) =>
+                          setState(() => _angleIndex = i),
+                      children: [
+                        for (final path in widget.item.allAngles)
+                          Image.file(
+                            File(path),
+                            // contain, а не cover: вещь целиком видна,
+                            // фон прозрачный — обрезать нечего.
+                            fit: BoxFit.contain,
+                            errorBuilder: (_, _, _) =>
+                                const SizedBox.expand(),
+                          ),
+                      ],
+                    ),
+                    if (widget.item.allAngles.length > 1)
+                      Positioned(
+                        left: 0,
+                        right: 0,
+                        bottom: 6,
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            for (var i = 0;
+                                i < widget.item.allAngles.length;
+                                i++)
+                              Container(
+                                width: 6,
+                                height: 6,
+                                margin:
+                                    const EdgeInsets.symmetric(horizontal: 3),
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: i == _angleIndex
+                                      ? scheme.primary
+                                      : scheme.outlineVariant,
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
               ),
             ),
             if (widget.item.originalPath != null) ...[

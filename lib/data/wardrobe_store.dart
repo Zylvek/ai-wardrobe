@@ -92,6 +92,43 @@ class WardrobeStore {
     wardrobeVersion.value++;
     return item;
   }
+
+  /// Добавляет к вещи ещё один ракурс: та же «умная камера», что и при
+  /// первом фото — копия оригинала, чистка фона, прозрачный PNG.
+  /// Возвращает путь к очищенному кадру (или null, если обработка не вышла).
+  static Future<String?> addAnglePhoto(
+    ClothingItem item,
+    String pickedPath,
+  ) async {
+    final photosDir = await _photosDir();
+    final originalsDir = Directory(
+      '${photosDir.path}${Platform.pathSeparator}originals',
+    );
+    await originalsDir.create(recursive: true);
+
+    final stamp = DateTime.now().millisecondsSinceEpoch.toString();
+    final ext = pickedPath.contains('.')
+        ? pickedPath.split('.').last.toLowerCase()
+        : 'jpg';
+    final originalPath =
+        '${originalsDir.path}${Platform.pathSeparator}'
+        'angle_${item.id}_$stamp.$ext';
+    await File(pickedPath).copy(originalPath);
+
+    final cleanedPath =
+        '${photosDir.path}${Platform.pathSeparator}angle_${item.id}_$stamp.png';
+    final cleaned = await cleanClothingPhoto(
+      originalPath,
+      sensitivity: 0.45,
+      outPath: cleanedPath,
+    );
+    if (cleaned == null) return null;
+
+    item.anglePaths.add(cleaned);
+    await save();
+    wardrobeVersion.value++;
+    return cleaned;
+  }
 }
 
 /// Открывает диалог выбора фото и возвращает путь (или null при отмене).

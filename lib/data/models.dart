@@ -7,7 +7,8 @@ class ClothingItem {
     this.type,
     this.color,
     this.weather,
-  });
+    List<String>? anglePaths,
+  }) : anglePaths = anglePaths ?? [];
 
   final String id;
   String imagePath;
@@ -19,6 +20,14 @@ class ClothingItem {
   String? color;
   String? weather;
 
+  /// Дополнительные ракурсы (очищенные PNG): слева, сзади, справа.
+  /// Первый ракурс «спереди» — это imagePath. Используются для
+  /// вращения вещи в карточке.
+  final List<String> anglePaths;
+
+  /// Все ракурсы по порядку: спереди, потом остальные.
+  List<String> get allAngles => [imagePath, ...anglePaths];
+
   bool get isComplete => type != null && color != null && weather != null;
 
   Map<String, dynamic> toJson() => {
@@ -28,6 +37,7 @@ class ClothingItem {
         'type': type,
         'color': color,
         'weather': weather,
+        if (anglePaths.isNotEmpty) 'anglePaths': anglePaths,
       };
 
   factory ClothingItem.fromJson(Map<String, dynamic> json) => ClothingItem(
@@ -37,5 +47,7 @@ class ClothingItem {
         type: json['type'] as String?,
         color: json['color'] as String?,
         weather: json['weather'] as String?,
+        anglePaths:
+            (json['anglePaths'] as List<dynamic>?)?.cast<String>() ?? [],
       );
 }
