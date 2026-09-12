@@ -54,6 +54,8 @@ class _ItemEditSheetState extends State<ItemEditSheet> {
     if (cleaned != null) {
       widget.item.imagePath = cleaned;
       _imagePath = cleaned;
+      // Фон вырезан текущим фильтром — вещь «актуальна».
+      widget.item.filterVersion = kFilterVersion;
       await WardrobeStore.save();
       wardrobeVersion.value++;
     }
@@ -226,6 +228,19 @@ class _ItemEditSheetState extends State<ItemEditSheet> {
               kWeathers,
               _weather,
               (v) => setState(() => _weather = v),
+            ),
+            const SizedBox(height: 12),
+            // Версия приложения, в которой вещь добавлена, и версия
+            // фильтра, которым вырезан фон. Нужно, чтобы после улучшения
+            // фильтра можно было перекроить старые вещи заново.
+            Text(
+              'Добавлена: ${widget.item.appVersion ?? 'старая версия'}'
+              ' · фильтр: ${widget.item.filterVersion ?? 'старая версия'}'
+              ' (текущий $kFilterVersion)',
+              style: TextStyle(
+                fontSize: 11,
+                color: scheme.onSurfaceVariant,
+              ),
             ),
             const SizedBox(height: 20),
             Row(

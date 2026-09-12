@@ -3,9 +3,11 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'color_detector.dart';
+import 'constants.dart';
 import 'image_cleaner.dart';
 import 'models.dart';
 
@@ -15,6 +17,52 @@ final wardrobeVersion = ValueNotifier<int>(0);
 /// Хранилище гардероба: сохраняет вещи в файл на диске.
 class WardrobeStore {
   static final List<ClothingItem> items = [];
+
+  /// Версия приложения вида «1.0.3+4», читается один раз.
+  static String? _cachedVersion;
+
+  static Future<String> currentVersion() async {
+    final cached = _cachedVersion;
+    if (cached != null) return cached;
+    final info = await PackageInfo.fromPlatform();
+    return _cachedVersion = '${info.version}+${info.buildNumber}';
+  }
+
+  /// Сколько вещей можно перекроить из оригинала текущим фильтром:
+  /// у них есть оригинал, и фон вырезан не текущей версией фильтра.
+  static int outdatedCount() => items
+      .where((i) =>
+          i.originalPath != null && i.filterVersion != kFilterVersion)
+      .length;
+
+  /// «Обновить фильтр»: перекраивает все вещи из сохранённых оригиналов
+  /// текущим алгоритмом вырезания фона. Вызывается, когда фильтр стал
+  /// лучше (см. kFilterVersion). Возвращает число обновлённых вещей.
+  static Future<int> reprocessAll() async {
+    var updated = 0;
+    for (final item in items) {
+      final src = item.originalPath;
+      if (src == null || item.filterVersion == kFilterVersion) continue;
+      if (!await File(src).exists()) continue;
+      final dir = File(item.imagePath).parent.path;
+      final out = '$dir${Platform.pathSeparator}item_${item.id}_re.png';
+      final cleaned = await cleanClothingPhoto(
+        src,
+        sensitivity: 0.45,
+        outPath: out,
+      );
+      if (cleaned != null) {
+        item.imagePath = cleaned;
+        item.filterVersion = kFilterVersion;
+        updated++;
+      }
+    }
+    if (updated > 0) {
+      await save();
+      wardrobeVersion.value++;
+    }
+    return updated;
+  }
 
   static Future<String> _filePath() async {
     final dir = await getApplicationSupportDirectory();
@@ -81,11 +129,14 @@ class WardrobeStore {
     // Цвет определяем по оригиналу (фон там не прозрачный белый холст).
     final detectedColor = await detectColorName(originalPath);
 
+    final version = await currentVersion();
     final item = ClothingItem(
       id: id,
       imagePath: cardPath,
       originalPath: originalPath,
       color: detectedColor,
+      appVersion: version,
+      filterVersion: kFilterVersion,
     );
     items.add(item);
     await save();
