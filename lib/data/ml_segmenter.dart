@@ -134,4 +134,104 @@ class MlSegmenter {
       if (alpha[i] >= 128 && label[i] != best) alpha[i] = 0;
     }
   }
+
+  /// v2 фильтра: заливает «дыры» внутри вещи. Фон, попавший внутрь
+  /// объекта (пятна на футболке, просветы между деталями), но не
+  /// связанный с настоящим фоном по краям фото, становится вещью.
+  static void fillHoles(Uint8List alpha, int w, int h) {
+    const bg = 0, obj = 1, visited = 2;
+    final mark = Uint8List(w * h);
+    for (var i = 0; i < mark.length; i++) {
+      mark[i] = alpha[i] >= 128 ? obj : bg;
+    }
+    final queue = <int>[];
+    void seed(int i) {
+      if (mark[i] == bg) {
+        mark[i] = visited;
+        queue.add(i);
+      }
+    }
+
+    // Фон, связанный с рамкой фото, помечаем как «настоящий».
+    for (var x = 0; x < w; x++) {
+      seed(x);
+      seed((h - 1) * w + x);
+    }
+    for (var y = 0; y < h; y++) {
+      seed(y * w);
+      seed(y * w + w - 1);
+    }
+    var head = 0;
+    while (head < queue.length) {
+      final i = queue[head++];
+      final x = i % w;
+      final y = i ~/ w;
+      if (x > 0 && mark[i - 1] == bg) {
+        mark[i - 1] = visited;
+        queue.add(i - 1);
+      }
+      if (x < w - 1 && mark[i + 1] == bg) {
+        mark[i + 1] = visited;
+        queue.add(i + 1);
+      }
+      if (y > 0 && mark[i - w] == bg) {
+        mark[i - w] = visited;
+        queue.add(i - w);
+      }
+      if (y < h - 1 && mark[i + w] == bg) {
+        mark[i + w] = visited;
+        queue.add(i + w);
+      }
+    }
+    // Всё оставшееся «фоновое» — дыры внутри вещи, закрашиваем.
+    for (var i = 0; i < mark.length; i++) {
+      if (mark[i] == bg) alpha[i] = 255;
+    }
+  }
+
+  /// v2 фильтра: сглаживает маску «голосованием соседей» — стирает
+  /// одиночные пятна фона внутри вещи и одиночные пиксели вещи снаружи.
+  static void smoothAlpha(Uint8List alpha, int w, int h) {
+    final copy = Uint8List.fromList(alpha);
+    for (var y = 1; y < h - 1; y++) {
+      for (var x = 1; x < w - 1; x++) {
+        final i = y * w + x;
+        var n = 0;
+        for (var dy = -1; dy <= 1; dy++) {
+          for (var dx = -1; dx <= 1; dx++) {
+            if (dx == 0 && dy == 0) continue;
+            if (copy[i + dy * w + dx] >= 128) n++;
+          }
+        }
+        if (copy[i] < 128 && n >= 5) {
+          alpha[i] = 255; // дырка внутри вещи — закрасить
+        } else if (copy[i] >= 128 && n <= 2) {
+          alpha[i] = 0; // одинокий пиксель вещи — стереть
+        }
+      }
+    }
+  }
+
+  /// Мягкая кромка: край вещи делается полупрозрачным, чтобы срез не
+  /// выглядел «пилой» после нейросети.
+  static void featherEdge(Uint8List alpha, int w, int h) {
+    final copy = Uint8List.fromList(alpha);
+    for (var y = 1; y < h - 1; y++) {
+      for (var x = 1; x < w - 1; x++) {
+        final i = y * w + x;
+        if (copy[i] < 128) continue;
+        var softNeighbors = 0;
+        for (var dy = -1; dy <= 1; dy++) {
+          for (var dx = -1; dx <= 1; dx++) {
+            if (dx == 0 && dy == 0) continue;
+            final v = copy[i + dy * w + dx];
+            if (v > 0 && v < 128) softNeighbors++;
+          }
+        }
+        if (softNeighbors > 0 && copy[i] == 255) {
+          alpha[i] = 200; // приглушаем резкий край рядом с мягкой кромкой
+        }
+      }
+    }
+  }
 }

@@ -42,6 +42,7 @@ dependencies:
   http: ^1.6.0
   package_info_plus: ^10.2.1
   camera: ^0.12.1
+  archive: ^4.0.7
 
 dev_dependencies:
   flutter_test:

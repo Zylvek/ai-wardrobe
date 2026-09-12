@@ -61,6 +61,44 @@ Outfit? buildOutfit({required String weather, Outfit? avoid}) {
 
 String _idsOf(Outfit outfit) => outfit.items.map((e) => e.id).join(',');
 
+/// Восстанавливает образ из списка id вещей (для избранных образов и
+/// истории носки). Вещи раскладываются по слотам по их типу.
+Outfit? outfitFromIds(List<String> ids) {
+  final items = <ClothingItem>[];
+  for (final id in ids) {
+    for (final item in WardrobeStore.items) {
+      if (item.id == id) {
+        items.add(item);
+        break;
+      }
+    }
+  }
+  if (ids.isNotEmpty && items.isEmpty) return null;
+
+  ClothingItem? inSlot(Set<String> types) {
+    for (final i in items) {
+      if (i.type != null && types.contains(i.type)) return i;
+    }
+    return null;
+  }
+
+  final top = inSlot(_topTypes);
+  final bottom = inSlot(_bottomTypes);
+  final shoes = inSlot(_shoeTypes);
+  final outer = inSlot(_outerTypes);
+  // Платье занимает слот верха, если верха и низа нет.
+  final dress = (top == null && bottom == null) ? inSlot(_dressTypes) : null;
+
+  final outfit = Outfit(
+    top: top ?? dress,
+    bottom: dress == null ? bottom : null,
+    shoes: shoes,
+    outer: outer,
+  );
+  if (outfit.items.isEmpty) return null;
+  return outfit;
+}
+
 Outfit? _buildOnce(String weather) {
   final ok = kWeatherCompatible[weather] ?? kWeathers.toSet();
 
@@ -69,7 +107,9 @@ Outfit? _buildOnce(String weather) {
           i.type != null &&
           types.contains(i.type) &&
           i.weather != null &&
-          ok.contains(i.weather))
+          ok.contains(i.weather) &&
+          // Вещь «в стирке» в образы не попадает.
+          !i.inLaundry)
       .toList();
 
   // Каждый слот наполняется независимо: если есть хотя бы одна вещь

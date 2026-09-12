@@ -53,6 +53,11 @@ Future<String?> cleanClothingPhoto(
       if (mask != null) {
         final a = MlSegmenter.maskToAlpha(mask, w, h);
         MlSegmenter.keepLargestComponent(a, w, h);
+        // v2 фильтра: дыры внутри вещи закрываем, маску сглаживаем,
+        // край делаем мягким.
+        MlSegmenter.fillHoles(a, w, h);
+        MlSegmenter.smoothAlpha(a, w, h);
+        MlSegmenter.featherEdge(a, w, h);
         var cnt = 0;
         for (final v in a) {
           if (v > 128) cnt++;
