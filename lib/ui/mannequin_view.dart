@@ -8,11 +8,14 @@ import '../data/outfit_builder.dart';
 
 /// Манекен «как в магазине» на главном экране.
 ///
-/// Тело — матовая фигура на подставке, собранная из отдельных объёмных
-/// деталей: голова, шея, торс, руки, ноги и ступни. Каждая деталь красится
-/// своей цилиндрической светотенью, а детали сортируются по глубине —
-/// дальняя рука уходит за торс, ближняя выступает вперёд. Крути пальцем
-/// влево/вправо — фигура повернётся, бока сожмутся, как у настоящего тела.
+/// Тело — настоящая полигональная 3D-модель, собранная из гладких
+/// поверхностей вращения: голова с носом и ушами, шея, торс с плечами
+/// и талией, руки от дельтовидной мышцы до ладони, ноги и ступни.
+/// Каждая грань освещается по своей нормали (ламбертово освещение),
+/// грани сортируются по глубине — дальняя рука уходит за торс,
+/// ближняя выступает вперёд. Крути пальцем влево/вправо — фигура
+/// повернётся, бока сожмутся, свет останется на месте, как у настоящего
+/// тела.
 ///
 /// Вещи «натягиваются» на фигуру: фото режется на узкие полосы, и каждая
 /// полоса оборачивается вокруг тела в ту же сторону, в которую крутится
@@ -38,13 +41,13 @@ class _MannequinOutfitState extends State<MannequinOutfit> {
 
   // Зоны «надевания» (доли ширины/высоты манекена).
   static const Rect _torsoZone =
-      Rect.fromLTRB(0.29, 0.17, 0.71, 0.50); // верх
+      Rect.fromLTRB(0.344, 0.155, 0.656, 0.455); // верх
   static const Rect _outerZone =
-      Rect.fromLTRB(0.23, 0.16, 0.77, 0.54); // верхняя одежда
+      Rect.fromLTRB(0.310, 0.145, 0.690, 0.495); // верхняя одежда
   static const Rect _bottomZone =
-      Rect.fromLTRB(0.30, 0.47, 0.70, 0.87); // низ
+      Rect.fromLTRB(0.340, 0.415, 0.660, 0.875); // низ
   static const Rect _shoesZone =
-      Rect.fromLTRB(0.26, 0.84, 0.74, 0.97); // обувь
+      Rect.fromLTRB(0.360, 0.890, 0.640, 0.962); // обувь
 
   @override
   void initState() {
@@ -111,24 +114,24 @@ class _MannequinOutfitState extends State<MannequinOutfit> {
               img(widget.outfit.shoes!.imagePath),
               absZone(_shoesZone),
               clipPart: 'feet',
-              rx: 0.062,
-              rz: 0.030,
+              rx: 0.094,
+              rz: 0.078,
             ),
           if (widget.outfit.bottom != null)
             _Piece(
               img(widget.outfit.bottom!.imagePath),
               absZone(_bottomZone),
               clipPart: 'legs',
-              rx: 0.110,
-              rz: 0.065,
+              rx: 0.104,
+              rz: 0.074,
             ),
           if (widget.outfit.top != null)
             _Piece(
               img(widget.outfit.top!.imagePath),
               absZone(_torsoZone),
               clipPart: 'torso',
-              rx: 0.150,
-              rz: 0.078,
+              rx: 0.112,
+              rz: 0.072,
             ),
           if (widget.outfit.outer != null)
             _Piece(
@@ -136,8 +139,8 @@ class _MannequinOutfitState extends State<MannequinOutfit> {
               absZone(_outerZone),
               // Куртка шире тела — не обрезаем по силуэту.
               clipPart: null,
-              rx: 0.150,
-              rz: 0.078,
+              rx: 0.118,
+              rz: 0.076,
             ),
         ];
 
@@ -208,46 +211,237 @@ class _Piece {
   final double rx, rz;
 }
 
-/// Профиль торса: (высота, полуширина, полуглубина) в долях высоты.
-const List<(double, double, double)> _torsoProfile = [
-  (0.170, 0.155, 0.075), // плечи
-  (0.250, 0.138, 0.070),
-  (0.330, 0.130, 0.078), // грудь
-  (0.400, 0.118, 0.070), // талия
-  (0.455, 0.125, 0.074),
-  (0.505, 0.138, 0.082), // бёдра
-];
+// ---------------------------------------------------------------------------
+// Полигональная модель тела.
+// ---------------------------------------------------------------------------
 
-/// Полуширина и полуглубина торса на высоте y.
-(double, double) _torsoAt(double y) {
-  for (var i = 0; i < _torsoProfile.length - 1; i++) {
-    final (y0, rx0, rz0) = _torsoProfile[i];
-    final (y1, rx1, rz1) = _torsoProfile[i + 1];
-    if (y <= y1) {
-      final t = (y - y0) / (y1 - y0);
-      return (rx0 + (rx1 - rx0) * t, rz0 + (rz1 - rz0) * t);
-    }
-  }
-  final last = _torsoProfile.last;
-  return (last.$2, last.$3);
+/// Одна грань четырёхугольной сетки: четыре вершины и нормаль
+/// (в координатах модели).
+class _Q {
+  const _Q(this.a, this.b, this.c, this.d, this.n);
+  final (double, double, double) a, b, c, d;
+  final (double, double, double) n;
 }
 
-/// Части тела как капсулы: (начало, конец, радиус, имя части).
-/// Каждая рисуется отдельно со своей светотенью и сортируется по глубине.
-const List<((double, double, double), (double, double, double), double, String)>
-    _capsules = [
-  // Шея.
-  ((0, 0.122, 0), (0, 0.178, 0), 0.030, 'neck'),
-  // Руки с ладонями на конце.
-  ((-0.150, 0.195, -0.015), (-0.262, 0.495, -0.050), 0.028, 'arm'),
-  ((0.150, 0.195, -0.015), (0.262, 0.495, -0.050), 0.028, 'arm'),
-  // Ноги (начинаются под торсом, чтобы не было щели на бёдрах).
-  ((-0.075, 0.470, 0), (-0.088, 0.895, 0), 0.036, 'leg'),
-  ((0.075, 0.470, 0), (0.088, 0.895, 0), 0.036, 'leg'),
-  // Ступни (смотрят вперёд, поэтому честно укорачиваются при повороте).
-  ((-0.088, 0.900, -0.020), (-0.090, 0.900, 0.055), 0.022, 'foot'),
-  ((0.088, 0.900, -0.020), (0.090, 0.900, 0.055), 0.022, 'foot'),
+/// Строка сечения: (высота, центр X, центр Z, полуширина, полуглубина,
+/// показатель «квадратности» сечения; 2 — эллипс, больше — квадратнее).
+typedef _Row = (double, double, double, double, double, double);
+
+double _sgn(double v) => v < 0 ? -1.0 : 1.0;
+
+/// Голова: яйцо с затылком, носом и ушами.
+const List<_Row> _headRows = [
+  (0.004, 0, 0.004, 0.010, 0.010, 2.0),
+  (0.014, 0, 0.004, 0.028, 0.029, 2.0),
+  (0.030, 0, 0.004, 0.040, 0.042, 2.0),
+  (0.046, 0, 0.004, 0.046, 0.048, 2.0),
+  (0.061, 0, 0.004, 0.048, 0.051, 2.0),
+  (0.076, 0, 0.004, 0.047, 0.052, 2.0),
+  (0.089, 0, 0.004, 0.044, 0.050, 2.0),
+  (0.101, 0, 0.004, 0.036, 0.044, 2.0),
+  (0.111, 0, 0.005, 0.026, 0.034, 2.0),
+  (0.119, 0, 0.006, 0.012, 0.017, 2.0),
 ];
+
+/// Шея.
+const List<_Row> _neckRows = [
+  (0.106, 0, 0.006, 0.030, 0.030, 2.0),
+  (0.125, 0, 0.008, 0.027, 0.027, 2.0),
+  (0.142, 0, 0.010, 0.029, 0.029, 2.0),
+];
+
+/// Торс: плечи → грудь → талия → бёдра. n > 2 у плеч — «квадратные»
+/// плечи, как у настоящей фигуры.
+const List<_Row> _torsoRows = [
+  (0.138, 0, 0.008, 0.070, 0.046, 2.4),
+  (0.150, 0, 0.008, 0.088, 0.054, 2.5),
+  (0.162, 0, 0.007, 0.100, 0.062, 2.6),
+  (0.195, 0, 0.006, 0.101, 0.068, 2.5),
+  (0.230, 0, 0.004, 0.098, 0.072, 2.4),
+  (0.268, 0, 0.002, 0.093, 0.072, 2.3),
+  (0.306, 0, 0.000, 0.085, 0.064, 2.2),
+  (0.346, 0, 0.000, 0.086, 0.063, 2.2),
+  (0.386, 0, 0.002, 0.093, 0.068, 2.2),
+  (0.422, 0, 0.004, 0.098, 0.071, 2.1),
+  (0.455, 0, 0.006, 0.096, 0.069, 2.0),
+  (0.480, 0, 0.006, 0.088, 0.062, 2.0),
+  (0.500, 0, 0.006, 0.072, 0.050, 2.0),
+  (0.512, 0, 0.006, 0.032, 0.024, 2.0),
+];
+
+/// Рука (левая, x < 0): дельта → бицепс → локоть → предплечье →
+/// запястье → ладонь. Плечевой сустав — снаружи торса.
+const List<_Row> _armRows = [
+  (0.148, -0.094, 0.012, 0.038, 0.040, 2.0),
+  (0.185, -0.098, 0.004, 0.034, 0.036, 2.0),
+  (0.240, -0.102, 0.000, 0.030, 0.032, 2.0),
+  (0.300, -0.105, 0.006, 0.026, 0.028, 2.0),
+  (0.360, -0.107, 0.016, 0.023, 0.025, 2.0),
+  (0.418, -0.108, 0.026, 0.019, 0.021, 2.0),
+  (0.452, -0.109, 0.034, 0.023, 0.025, 2.0),
+  (0.488, -0.109, 0.038, 0.015, 0.017, 2.0),
+];
+
+/// Нога (левая): бедро → колено → икра → щиколотка.
+const List<_Row> _legRows = [
+  (0.470, -0.052, 0.014, 0.052, 0.060, 2.0),
+  (0.530, -0.054, 0.014, 0.050, 0.058, 2.0),
+  (0.600, -0.056, 0.012, 0.046, 0.054, 2.0),
+  (0.660, -0.058, 0.008, 0.040, 0.050, 2.0),
+  (0.720, -0.058, 0.004, 0.037, 0.048, 2.0),
+  (0.762, -0.058, 0.002, 0.039, 0.044, 2.0),
+  (0.802, -0.058, 0.000, 0.033, 0.040, 2.0),
+  (0.850, -0.058, -0.002, 0.029, 0.036, 2.0),
+  (0.895, -0.058, -0.004, 0.026, 0.030, 2.0),
+  (0.908, -0.058, -0.004, 0.024, 0.027, 2.0),
+];
+
+/// Ступня (левая): кроссовок носком вперёд (+z).
+const List<_Row> _footRows = [
+  (0.904, -0.058, -0.004, 0.029, 0.028, 2.0),
+  (0.918, -0.058, 0.012, 0.031, 0.056, 2.0),
+  (0.932, -0.058, 0.026, 0.030, 0.068, 2.0),
+  (0.943, -0.058, 0.031, 0.025, 0.060, 2.0),
+  (0.952, -0.058, 0.033, 0.015, 0.040, 2.0),
+  (0.958, -0.058, 0.034, 0.007, 0.017, 2.0),
+];
+
+/// Деформация головы: нос спереди, подбородок, уши по бокам.
+(double, double) _headDeform(double y, double x, double z) {
+  // Насколько точка смотрит «вперёд» (к +z): 1 — нос, 0 — профиль.
+  final f = ((z - 0.004) / 0.052).clamp(0.0, 1.0);
+  final front = f * f * f;
+  // Нос: небольшой выступ на уровне середины лица.
+  final gn = math.exp(-math.pow((y - 0.077) / 0.013, 2));
+  var dz = 0.016 * gn * front;
+  // Подбородок.
+  final gc = math.exp(-math.pow((y - 0.108) / 0.012, 2));
+  dz += 0.006 * gc * front;
+  // Уши: выступ по бокам на уровне глаз.
+  final ge = math.exp(-math.pow((y - 0.066) / 0.011, 2));
+  final sx = (x.abs() / 0.048).clamp(0.0, 1.0);
+  final dx = (x < 0 ? -1.0 : 1.0) * 0.008 * ge * sx * sx * sx;
+  return (dx, dz);
+}
+
+/// Строит «трубу» по строкам сечений: кольца вершин + четырёхугольники
+/// между соседними кольцами, с нормалями наружу.
+List<_Q> _loft(
+  List<_Row> rows,
+  int seg, {
+  (double, double) Function(double y, double x, double z)? deform,
+  bool flip = false,
+}) {
+  final rings = <List<(double, double, double)>>[];
+  for (final (y, cx, cz, rx, rz, n) in rows) {
+    final e = 2.0 / n;
+    final ring = <(double, double, double)>[];
+    for (var j = 0; j < seg; j++) {
+      final t = 2 * math.pi * j / seg;
+      final sn = math.sin(t), cs = math.cos(t);
+      var x = cx + rx * _sgn(sn) * math.pow(sn.abs(), e);
+      var z = cz + rz * _sgn(cs) * math.pow(cs.abs(), e);
+      if (deform != null) {
+        final (dx, dz) = deform(y, x, z);
+        x += dx;
+        z += dz;
+      }
+      ring.add((x, y, z));
+    }
+    // У зеркальной копии обход кольца обращается: иначе нормали и
+    // отсечение задних граней «выворачиваются», и конечность пропадает.
+    rings.add(flip ? ring.reversed.toList() : ring);
+  }
+  // Сначала плоские нормали граней…
+  final flat = <List<(double, double, double)>>[];
+  for (var i = 0; i < rings.length - 1; i++) {
+    final row = <(double, double, double)>[];
+    final r0 = rings[i], r1 = rings[i + 1];
+    for (var j = 0; j < seg; j++) {
+      final j1 = (j + 1) % seg;
+      final a = r0[j], b = r0[j1], d = r1[j];
+      // Нормаль = cross(b − a, d − a), наружу от поверхности.
+      final e1 = (b.$1 - a.$1, b.$2 - a.$2, b.$3 - a.$3);
+      final e2 = (d.$1 - a.$1, d.$2 - a.$2, d.$3 - a.$3);
+      var nx = e1.$2 * e2.$3 - e1.$3 * e2.$2;
+      var ny = e1.$3 * e2.$1 - e1.$1 * e2.$3;
+      var nz = e1.$1 * e2.$2 - e1.$2 * e2.$1;
+      final len = math.sqrt(nx * nx + ny * ny + nz * nz);
+      if (len > 1e-9) {
+        nx /= len;
+        ny /= len;
+        nz /= len;
+      } else {
+        nz = 1;
+      }
+      row.add((nx, ny, nz));
+    }
+    flat.add(row);
+  }
+
+  // …потом сглаживаем: нормаль вершины — среднее соседних граней,
+  // нормаль грани — среднее её четырёх вершин. Так поверхность
+  // выглядит гладкой, а не гранёной.
+  (double, double, double) vNorm(int i, int j) {
+    var nx = 0.0, ny = 0.0, nz = 0.0;
+    for (final di in const [-1, 0]) {
+      for (final dj in const [-1, 0]) {
+        final ii = i + di, jj = (j + dj + seg) % seg;
+        if (ii < 0 || ii >= flat.length) continue;
+        final f = flat[ii][jj];
+        nx += f.$1;
+        ny += f.$2;
+        nz += f.$3;
+      }
+    }
+    final len = math.sqrt(nx * nx + ny * ny + nz * nz);
+    if (len < 1e-9) return (0, 0, 1);
+    return (nx / len, ny / len, nz / len);
+  }
+
+  final quads = <_Q>[];
+  for (var i = 0; i < rings.length - 1; i++) {
+    final r0 = rings[i], r1 = rings[i + 1];
+    for (var j = 0; j < seg; j++) {
+      final j1 = (j + 1) % seg;
+      final fa = vNorm(i, j);
+      final fb = vNorm(i, j1);
+      final fc = vNorm(i + 1, j1);
+      final fd = vNorm(i + 1, j);
+      var nx = fa.$1 + fb.$1 + fc.$1 + fd.$1;
+      var ny = fa.$2 + fb.$2 + fc.$2 + fd.$2;
+      var nz = fa.$3 + fb.$3 + fc.$3 + fd.$3;
+      final len = math.sqrt(nx * nx + ny * ny + nz * nz);
+      if (len > 1e-9) {
+        nx /= len;
+        ny /= len;
+        nz /= len;
+      }
+      quads.add(_Q(r0[j], r0[j1], r1[j1], r1[j], (nx, ny, nz)));
+    }
+  }
+  return quads;
+}
+
+/// Зеркальная копия строк сечений (для второй руки/ноги).
+List<_Row> _mirrorRows(List<_Row> rows) => [
+      for (final (y, cx, cz, rx, rz, n) in rows) (y, -cx, cz, rx, rz, n),
+    ];
+
+/// Собирает всё тело: голова, шея, торс и парные конечности.
+List<_Q> _buildBody() {
+  final q = <_Q>[];
+  q.addAll(_loft(_headRows, 48, deform: _headDeform));
+  q.addAll(_loft(_neckRows, 28));
+  q.addAll(_loft(_torsoRows, 56));
+  q.addAll(_loft(_armRows, 32));
+  q.addAll(_loft(_mirrorRows(_armRows), 32, flip: true));
+  q.addAll(_loft(_legRows, 40));
+  q.addAll(_loft(_mirrorRows(_legRows), 40, flip: true));
+  q.addAll(_loft(_footRows, 24));
+  q.addAll(_loft(_mirrorRows(_footRows), 24, flip: true));
+  return q;
+}
 
 /// Рисует манекен «как в магазине» и одетые на него вещи.
 class _Mannequin3DPainter extends CustomPainter {
@@ -261,123 +455,19 @@ class _Mannequin3DPainter extends CustomPainter {
   final List<_Piece> pieces;
   final bool dark;
 
-  /// Свет слева-спереди, в экранных координатах.
-  static const double _lightScreen = -0.55;
+  /// Модель тела строится один раз и переиспользуется.
+  static final List<_Q> _body = _buildBody();
+
+  /// Сколько уровней яркости в палитре (грани сливаются в «заливки»).
+  static const int _levels = 96;
+
+  /// Свет: слева-сверху-спереди (в экранных координатах, единичный).
+  static const double _lx = -0.514, _ly = -0.638, _lz = 0.617;
 
   Color get _cLight =>
-      dark ? const Color(0xFF82828E) : const Color(0xFFF8F7F4);
-  Color get _cBase =>
-      dark ? const Color(0xFF565662) : const Color(0xFFE6E3DD);
+      dark ? const Color(0xFF9A9AA6) : const Color(0xFFFCFBF8);
   Color get _cShadow =>
-      dark ? const Color(0xFF3C3C46) : const Color(0xFFB4AFA7);
-  Color get _cStand =>
-      dark ? const Color(0xFF3A3A44) : const Color(0xFFA8A39B);
-
-  /// Яркость точки на цилиндре с экранным азимутом a (−π/2 … π/2).
-  double _shade(double a) {
-    final lit = math.max(0.0, math.cos(a + _lightScreen));
-    final facing = 0.55 + 0.45 * math.cos(a);
-    return (0.35 + 0.65 * lit) * facing;
-  }
-
-  /// Краска-градиент «цилиндра» перпендикулярно оси: from → to по ширине.
-  Paint _cylPaint(double from, double to) {
-    Color c(double t) =>
-        Color.lerp(_cShadow, _cLight, _shade(math.asin(t)))!;
-    return Paint()
-      ..shader = ui.Gradient.linear(
-        Offset(0, from),
-        Offset(0, to),
-        [c(-1.0), c(-0.5), c(0.0), c(0.5), c(1.0)],
-        const [0.0, 0.25, 0.5, 0.75, 1.0],
-      );
-  }
-
-  /// Капсула (объёмная «трубка») между двумя точками, с светотенью
-  /// поперёк: светлый бок слева-сверху, тёмный — справа.
-  void _capsule(Canvas canvas, Offset p0, Offset p1, double radius) {
-    final dir = p1 - p0;
-    final len = dir.distance;
-    if (len < radius) {
-      // Почти шар — рисуем круг с радиальной светотенью.
-      canvas.drawCircle(
-        p0,
-        radius,
-        Paint()
-          ..shader = ui.Gradient.radial(
-            p0 - Offset(radius * 0.35, radius * 0.45),
-            radius * 1.7,
-            [_cLight, _cBase, _cShadow],
-            const [0.0, 0.5, 1.0],
-          ),
-      );
-      return;
-    }
-    canvas.save();
-    canvas.translate(p0.dx, p0.dy);
-    canvas.rotate(math.atan2(dir.dy, dir.dx));
-    final path = Path()
-      ..addRRect(RRect.fromRectAndRadius(
-        Rect.fromLTWH(0, -radius, len, radius * 2),
-        Radius.circular(radius),
-      ));
-    canvas.drawPath(path, _cylPaint(-radius, radius));
-    canvas.restore();
-  }
-
-  /// Голова — матовый шар без лица, как у магазинного манекена.
-  void _head(Canvas canvas, double cx, double h, double k) {
-    final r = 0.056 * h * k;
-    final center = Offset(cx, 0.072 * h);
-    canvas.drawCircle(
-      center,
-      r,
-      Paint()
-        ..shader = ui.Gradient.radial(
-          center - Offset(r * 0.35, r * 0.45),
-          r * 1.7,
-          [_cLight, _cBase, _cShadow],
-          const [0.0, 0.5, 1.0],
-        ),
-    );
-  }
-
-  /// Торс — гладкий контур по профилю, с цилиндрической светотенью.
-  void _torsoPart(Canvas canvas, double cx, double h, double k) {
-    final c = math.cos(angle);
-    final s = math.sin(angle);
-    final path = Path();
-    final pts = <Offset>[];
-    for (var y = 0.170; y <= 0.5051; y += 0.010) {
-      final (rx, rz) = _torsoAt(y);
-      final halfW =
-          math.sqrt((rx * c) * (rx * c) + (rz * s) * (rz * s)) * h * k;
-      pts.add(Offset(cx + halfW, y * h));
-    }
-    for (var i = pts.length - 1; i >= 0; i--) {
-      pts.add(Offset(2 * cx - pts[i].dx, pts[i].dy));
-    }
-    path.addPolygon(pts, true);
-    // Ширина градиента — текущая ширина торса на экране.
-    final half =
-        math.sqrt((0.155 * c) * (0.155 * c) + (0.075 * s) * (0.075 * s)) *
-            h *
-            k;
-    final paint = Paint()
-      ..shader = ui.Gradient.linear(
-        Offset(cx - half, 0),
-        Offset(cx + half, 0),
-        [
-          Color.lerp(_cShadow, _cLight, _shade(-1.0))!,
-          Color.lerp(_cShadow, _cLight, _shade(-0.5))!,
-          Color.lerp(_cShadow, _cLight, _shade(0.0))!,
-          Color.lerp(_cShadow, _cLight, _shade(0.5))!,
-          Color.lerp(_cShadow, _cLight, _shade(1.0))!,
-        ],
-        const [0.0, 0.25, 0.5, 0.75, 1.0],
-      );
-    canvas.drawPath(path, paint);
-  }
+      dark ? const Color(0xFF45454F) : const Color(0xFFA9A298);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -389,130 +479,146 @@ class _Mannequin3DPainter extends CustomPainter {
     final c = math.cos(angle);
     final s = math.sin(angle);
 
-    // Экранные точки и глубина трёхмерной точки (x, y, z).
-    Offset pt(double x, double y, double z) =>
-        Offset(cx + (x * c + z * s) * h * k, y * h);
-    double depthOf(double x, double z) => (z * c - x * s) * h * k;
-
-    // Тень на полу, подставка-диск и штанга (как у магазинного манекена).
+    // Тень на полу.
     canvas.drawOval(
       Rect.fromCenter(
-        center: Offset(cx, h * 0.982),
-        width: w * 0.44,
-        height: h * 0.030,
+        center: Offset(cx, h * 0.978),
+        width: w * 0.40,
+        height: h * 0.026,
       ),
-      Paint()..color = Colors.black.withValues(alpha: dark ? 0.35 : 0.13),
-    );
-    canvas.drawOval(
-      Rect.fromCenter(
-        center: Offset(cx, h * 0.984),
-        width: h * 0.26,
-        height: h * 0.022,
-      ),
-      Paint()..color = _cStand,
-    );
-    canvas.drawRect(
-      Rect.fromLTWH(cx - h * 0.006, h * 0.86, h * 0.012, h * 0.125),
-      Paint()..color = _cStand,
+      Paint()..color = Colors.black.withValues(alpha: dark ? 0.35 : 0.12),
     );
 
-    // Части тела: сортируем по глубине и рисуем от дальних к ближним.
-    final parts = <(double, void Function())>[
-      (depthOf(0, 0) + 2, () => _torsoPart(canvas, cx, h, k)),
+    // Палитра уровней яркости: от тени к свету.
+    final paints = <Paint>[
+      for (var i = 0; i < _levels; i++)
+        Paint()
+          ..color = Color.lerp(_cShadow, _cLight, i / (_levels - 1))!
     ];
-    for (final (p0, p1, r, _) in _capsules) {
-      parts.add((
-        depthOf(((p0.$1 + p1.$1) / 2), ((p0.$3 + p1.$3) / 2)),
-        () => _capsule(
-              canvas,
-              pt(p0.$1, p0.$2, p0.$3),
-              pt(p1.$1, p1.$2, p1.$3),
-              r * h * k,
-            ),
-      ));
-    }
-    // Голова поверх шеи, шея поверх торса.
-    parts.add((depthOf(0, 0) + 1, () {
-      _capsule(
-        canvas,
-        pt(0, 0.122, 0),
-        pt(0, 0.178, 0),
-        0.030 * h * k,
-      );
-    }));
-    parts.add((depthOf(0, 0) + 3, () => _head(canvas, cx, h, k)));
-    parts.sort((a, b) => a.$1.compareTo(b.$1));
-    for (final (_, draw) in parts) {
-      draw();
+
+    // Видимые грани: (глубина, точки на экране, уровень яркости).
+    final faces = <(double, List<Offset>, int)>[];
+    double sxOf(double x, double z) => cx + (x * c + z * s) * h * k;
+    double depthOf(double x, double z) => z * c - x * s;
+
+    for (final q in _body) {
+      final pts = [
+        Offset(sxOf(q.a.$1, q.a.$3), q.a.$2 * h),
+        Offset(sxOf(q.b.$1, q.b.$3), q.b.$2 * h),
+        Offset(sxOf(q.c.$1, q.c.$3), q.c.$2 * h),
+        Offset(sxOf(q.d.$1, q.d.$3), q.d.$2 * h),
+      ];
+      // Отсечение задних граней: знак площади на экране.
+      final cross2 = (pts[1].dx - pts[0].dx) * (pts[3].dy - pts[0].dy) -
+          (pts[1].dy - pts[0].dy) * (pts[3].dx - pts[0].dx);
+      if (cross2 <= 0) continue;
+
+      // Нормаль поворачивается вместе с телом.
+      final nx = q.n.$1 * c + q.n.$3 * s;
+      final ny = q.n.$2;
+      final nz = q.n.$3 * c - q.n.$1 * s;
+      var lam = nx * _lx + ny * _ly + nz * _lz;
+      if (lam < 0) lam = 0;
+      final t = 0.30 + 0.70 * lam;
+      final bucket =
+          (t * (_levels - 1)).round().clamp(0, _levels - 1);
+
+      final depth = (depthOf(q.a.$1, q.a.$3) +
+              depthOf(q.b.$1, q.b.$3) +
+              depthOf(q.c.$1, q.c.$3) +
+              depthOf(q.d.$1, q.d.$3)) /
+          4;
+      faces.add((depth, pts, bucket));
     }
 
-    // Контуры частей тела: каждый слот одежды обрезается по своей части,
-    // чтобы, например, футболка не налезала на руку.
-    final clips = <String, Path>{
-      'torso': Path(),
-      'legs': Path(),
-      'feet': Path(),
-      'all': Path(),
-    };
-    void addCapsuleTo(Path path, Offset a, Offset b, double radius) {
-      final dir = b - a;
-      final len = dir.distance;
-      if (len < radius) {
-        path.addOval(Rect.fromCircle(center: a, radius: radius));
-        return;
+    // Дальние грани рисуем первыми; грани одного цвета сливаем в один
+    // путь — так 1100 граней превращаются в несколько десятков заливок.
+    faces.sort((a, b) => a.$1.compareTo(b.$1));
+    // Тело рисуем в отдельный слой и накладываем с лёгким размытием:
+    // заливки граней сливаются в плавные переходы, как у настоящего
+    // манекена, а не смотрятся гранёной моделью.
+    final rec = ui.PictureRecorder();
+    final body = Canvas(rec);
+    Path? run;
+    var runBucket = -1;
+    for (final (_, pts, bucket) in faces) {
+      if (bucket != runBucket) {
+        if (run != null) body.drawPath(run, paints[runBucket]);
+        run = Path();
+        runBucket = bucket;
       }
-      // Капсула в контур: два круга на концах + прямоугольник между ними.
-      final dirN = Offset(dir.dx / len, dir.dy / len);
-      final n = Offset(-dirN.dy, dirN.dx) * radius;
-      path.addPolygon([a + n, b + n, b - n, a - n], true);
-      path.addOval(Rect.fromCircle(center: a, radius: radius));
-      path.addOval(Rect.fromCircle(center: b, radius: radius));
+      run!.addPolygon(pts, true);
     }
-
-    // Торс: гладкий контур по профилю + плечи.
-    final torsoPts = <Offset>[];
-    for (var y = 0.170; y <= 0.5051; y += 0.010) {
-      final (rx, rz) = _torsoAt(y);
-      final halfW =
-          math.sqrt((rx * c) * (rx * c) + (rz * s) * (rz * s)) * h * k;
-      torsoPts.add(Offset(cx + halfW, y * h));
-    }
-    for (var i = torsoPts.length - 1; i >= 0; i--) {
-      torsoPts.add(Offset(2 * cx - torsoPts[i].dx, torsoPts[i].dy));
-    }
-    for (final key in const ['torso', 'all']) {
-      clips[key]!.addPolygon(torsoPts, true);
-      clips[key]!.addOval(
-        Rect.fromCenter(
-          center: Offset(cx - 0.145 * c * h * k, 0.190 * h),
-          width: 0.072 * h * k,
-          height: 0.072 * h,
-        ),
-      );
-      clips[key]!.addOval(
-        Rect.fromCenter(
-          center: Offset(cx + 0.145 * c * h * k, 0.190 * h),
-          width: 0.072 * h * k,
-          height: 0.072 * h,
-        ),
-      );
-    }
-    // Капсулы — по своим частям.
-    for (final (p0, p1, r, part) in _capsules) {
-      final a = pt(p0.$1, p0.$2, p0.$3);
-      final b = pt(p1.$1, p1.$2, p1.$3);
-      addCapsuleTo(clips['all']!, a, b, r * h * k);
-      if (part == 'leg') addCapsuleTo(clips['legs']!, a, b, r * h * k);
-      if (part == 'foot') addCapsuleTo(clips['feet']!, a, b, r * h * k);
-    }
+    if (run != null) body.drawPath(run, paints[runBucket]);
+    final pic = rec.endRecording();
+    // Чёткая основа — силуэт остаётся резким.
+    canvas.drawPicture(pic);
+    // Сверху полупрозрачное размытие: внутренние переходы между
+    // гранями сглаживаются, как у настоящего манекена.
+    canvas.saveLayer(
+      Rect.fromLTWH(0, 0, w, h),
+      Paint()
+        ..color = Colors.white.withValues(alpha: 0.6)
+        ..imageFilter = ui.ImageFilter.blur(sigmaX: 2.4, sigmaY: 2.4),
+    );
+    canvas.drawPicture(pic);
+    canvas.restore();
 
     // Одежда поверх фигуры: каждая вещь оборачивается вокруг тела.
+    final clips = _clips(c, s, cx, h, k);
     for (final p in pieces) {
       final image = p.image;
       if (image != null) {
         _drawPiece(canvas, p, image, clips, cx, c, s);
       }
     }
+  }
+
+  /// Контур части тела на экране: по строкам сечений берём крайние
+  /// точки силуэта слева и справа. Им обрезается одежда.
+  Map<String, Path> _clips(
+    double c,
+    double s,
+    double cx,
+    double h,
+    double k,
+  ) {
+    Path fromRows(List<_Row> rows) {
+      final left = <Offset>[];
+      final right = <Offset>[];
+      for (final (y, ccx, ccz, rx, rz, n) in rows) {
+        final centerX = ccx * c + ccz * s;
+        var minX = 1e9, maxX = -1e9;
+        const samples = 24;
+        final e = 2.0 / n;
+        for (var j = 0; j < samples; j++) {
+          final t = 2 * math.pi * j / samples;
+          final sn = math.sin(t), cs = math.cos(t);
+          final x = rx * _sgn(sn) * math.pow(sn.abs(), e);
+          final z = rz * _sgn(cs) * math.pow(cs.abs(), e);
+          final xScreen = centerX + x * c + z * s;
+          if (xScreen < minX) minX = xScreen;
+          if (xScreen > maxX) maxX = xScreen;
+        }
+        left.add(Offset(cx + minX * h * k, y * h));
+        right.add(Offset(cx + maxX * h * k, y * h));
+      }
+      final pts = [...left, ...right.reversed];
+      return Path()..addPolygon(pts, true);
+    }
+
+    // Ноги и ступни парные: силуэт каждой стороны вырезается отдельно,
+    // иначе штаны обтягивают только одну ногу.
+    final legsL = fromRows([..._legRows, ..._footRows]);
+    final legsR = fromRows([..._mirrorRows(_legRows), ..._mirrorRows(_footRows)]);
+    final feetL = fromRows(_footRows);
+    final feetR = fromRows(_mirrorRows(_footRows));
+
+    return {
+      'torso': fromRows(_torsoRows),
+      'legs': Path.combine(PathOperation.union, legsL, legsR),
+      'feet': Path.combine(PathOperation.union, feetL, feetR),
+    };
   }
 
   /// «Оборачивает» фото вещи вокруг тела: экранная ширина зоны делится
@@ -539,6 +645,14 @@ class _Mannequin3DPainter extends CustomPainter {
     final imgH = image.height.toDouble();
     const n = 36;
     final stripW = (2 * r) / n;
+
+    // Яркость на «цилиндре» по экранному азимуту a — тот же свет, что
+    // и на теле (свет слева-спереди).
+    double shade(double a) {
+      final lit = math.max(0.0, math.cos(a + _lx * 1.1));
+      final facing = 0.55 + 0.45 * math.cos(a);
+      return (0.35 + 0.65 * lit) * facing;
+    }
 
     canvas.save();
     final clip = p.clipPart == null ? null : clips[p.clipPart];
@@ -578,9 +692,9 @@ class _Mannequin3DPainter extends CustomPainter {
         stripW,
         zone.height,
       );
-      // Тот же свет, что и на теле: тень красит только саму вещь
-      // (srcATop не трогает прозрачные пиксели фото — без полос на теле).
-      final darkAlpha = ((1 - _shade(a)) * 0.55).clamp(0.0, 0.42);
+      // Тень красит только саму вещь (srcATop не трогает прозрачные
+      // пиксели фото — без полос на теле).
+      final darkAlpha = ((1 - shade(a)) * 0.55).clamp(0.0, 0.42);
       final paint = Paint()
         ..filterQuality = FilterQuality.medium
         ..colorFilter = ColorFilter.mode(
